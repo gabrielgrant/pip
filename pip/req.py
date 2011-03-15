@@ -16,7 +16,7 @@ from pip.exceptions import InstallationError, UninstallationError
 from pip.vcs import vcs
 from pip.log import logger
 from pip.util import display_path, rmtree
-from pip.util import ask, backup_dir
+from pip.util import ask, backup_dir, create_cache_folder
 from pip.util import is_installable_dir, is_local, dist_is_local
 from pip.util import renames, normalize_path, egg_link_path
 from pip.util import make_path_relative
@@ -763,12 +763,14 @@ class Requirements(object):
 class RequirementSet(object):
 
     def __init__(self, build_dir, src_dir, download_dir, download_cache=None,
-                 upgrade=False, ignore_installed=False,
-                 ignore_dependencies=False):
+                 build_cache=None, cache_build=False, upgrade=False,
+                 ignore_installed=False, ignore_dependencies=False):
         self.build_dir = build_dir
         self.src_dir = src_dir
         self.download_dir = download_dir
         self.download_cache = download_cache
+        self.build_cache = build_cache
+        self.cache_build = cache_build
         self.upgrade = upgrade
         self.ignore_installed = ignore_installed
         self.requirements = Requirements()
@@ -907,6 +909,9 @@ class RequirementSet(object):
                 logger.notify('Obtaining %s' % req_to_install)
             elif install:
                 if req_to_install.url and req_to_install.url.lower().startswith('file:'):
+                    # DW: NOTE: needs to be changed; lies if the package will
+                    # DW: be installed from cache.
+                    # DW: BUT, what if it's editable?
                     logger.notify('Unpacking %s' % display_path(url_to_path(req_to_install.url)))
                 else:
                     logger.notify('Downloading/unpacking %s' % req_to_install)
@@ -915,8 +920,7 @@ class RequirementSet(object):
                 is_bundle = False
                 if req_to_install.editable:
                     if req_to_install.source_dir is None:
-                        location = req_to_install.build_location(self.src_dir)
-                        req_to_install.source_dir = location
+                        req_to_install.source_dir = req_to_install.build_location(self.src_dir)
                     else:
                         location = req_to_install.source_dir
                     if not os.path.exists(self.build_dir):
@@ -944,7 +948,16 @@ class RequirementSet(object):
                             ## FIXME: should req_to_install.url already be a link?
                             url = Link(req_to_install.url)
                             assert url
-                        if url:
+
+                        # XXX FROM CACHE XXX
+                        req_to_install.from_build_cache = None
+                        build_cache_location = self.get_cached_build_location(url)
+                        cache_exists = build_cache_location and os.path.exists(build_cache_location)
+                        if cache_exists and not self.is_download:
+                            location = build_cache_location
+                            req_to_install.source_dir = location
+                            logger.notify('Using cached build from %s' %(build_cache_location, ))
+                        elif url:
                             try:
                                 self.unpack_url(url, location, self.is_download)
                             except urllib2.HTTPError, e:
@@ -953,6 +966,15 @@ class RequirementSet(object):
                                 raise InstallationError(
                                     'Could not install requirement %s because of HTTP error %s for URL %s'
                                     % (req_to_install, e, url))
+                            # DW: For now, only cache stuff we have unpacked. It would be possible
+                            # DW: to cache stuff we didn't unpack, but that could lead to more edge
+                            # DW: cases.
+                            should_cache_build = self.cache_build and not self.is_download
+                            if should_cache_build:
+                                req_to_install.should_cache_build = True
+                                req_to_install.build_cache_location = build_cache_location
+                                logger.notify('The build of %s will be cached'
+                                              %(req_to_install.name, ))
                         else:
                             unpack = False
                     if unpack:
@@ -1019,15 +1041,29 @@ class RequirementSet(object):
                 logger.indent -= 2
 
     def cleanup_files(self, bundle=False):
-        """Clean up files, remove builds."""
+        """Clean up files, remove or cache builds."""
         logger.notify('Cleaning up...')
         logger.indent += 2
+
+        # XXX TO CACHE XXX
+        for req in self.unnamed_requirements + self.requirements.values():
+            assert not req.editable
+            if not getattr(req, "should_cache_build", None):
+                continue
+            build_cache_location = req.build_cache_location
+            logger.notify('Moving %s to cache %s...' %(req.name, build_cache_location))
+            # DW: Assumes that the package has been built inside the default pip build
+            # DW: dir. This can be fixed later.
+            shutil.rmtree(build_cache_location, ignore_errors=True)
+            shutil.move(req.source_dir, build_cache_location)
+
         for req in self.reqs_to_cleanup:
             req.remove_temporary_source()
 
         remove_dir = []
         if self._pip_has_created_build_dir():
             remove_dir.append(self.build_dir)
+            #TODO add an ignore arg to not move the PIP_DELETE_MARKER
 
         # The source dir of a bundle can always be removed.
         if bundle:
@@ -1062,6 +1098,16 @@ class RequirementSet(object):
             if self.download_cache:
                 self.download_cache = os.path.expanduser(self.download_cache)
             return unpack_http_url(link, location, self.download_cache, only_download)
+
+    def get_cached_build_location(self, url, create=False):
+        """Returns the location of the build cache for 'url', or None if
+        'self.build_cache' is not set."""
+
+        if not self.build_cache:
+            return None
+
+        quoted_url = urllib.quote(url.url, '')
+        return os.path.join(self.build_cache, quoted_url)
 
     def install(self, install_options, global_options=()):
         """Install everything in this set (after having downloaded and unpacked the packages)"""

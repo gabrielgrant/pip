@@ -20,7 +20,7 @@ __all__ = ['rmtree', 'display_path', 'backup_dir',
            'split_leading_dir', 'has_leading_dir',
            'make_path_relative', 'normalize_path',
            'renames', 'get_terminal_size',
-           'unzip_file', 'untar_file', 'create_download_cache_folder',
+           'unzip_file', 'untar_file', 'create_cache_folder',
            'cache_download', 'unpack_file']
 
 
@@ -437,9 +437,13 @@ def untar_file(filename, location):
         tar.close()
 
 
-def create_download_cache_folder(folder):
+def create_cache_folder(folder, type):
+    """
+    Creates 'folder' and all parent folders. 'type' should be, eg, "download",
+    and is used in the creation notification.
+    """
     logger.indent -= 2
-    logger.notify('Creating supposed download cache at %s' % folder)
+    logger.notify('Creating supposed %s cache at %s' %(type, folder))
     logger.indent += 2
     os.makedirs(folder)
 
