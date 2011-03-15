@@ -94,6 +94,17 @@ class InstallCommand(Command):
             default=None,
             help='Cache downloaded packages in DIR')
         self.parser.add_option(
+            '--build-cache',
+            dest='build_cache',
+            metavar='DIR',
+            default=None,
+            help='Cache built packages in DIR')
+        self.parser.add_option(
+            '--cache-build',
+            dest='cache_build',
+            action='store_true',
+            help='Cache packages after building')
+        self.parser.add_option(
             '--src', '--source', '--source-dir', '--source-directory',
             dest='src_dir',
             metavar='DIR',
@@ -164,7 +175,7 @@ class InstallCommand(Command):
     def run(self, options, args):
         if not options.build_dir:
             options.build_dir = build_prefix
-        if not options.src_dir:
+        if not options.src_dir and not options.cache_build:
             options.src_dir = src_prefix
         if options.download_dir:
             options.no_install = True
@@ -187,6 +198,7 @@ class InstallCommand(Command):
             src_dir=options.src_dir,
             download_dir=options.download_dir,
             download_cache=options.download_cache,
+            build_cache=options.build_cache,
             upgrade=options.upgrade,
             ignore_installed=options.ignore_installed,
             ignore_dependencies=options.ignore_dependencies)

@@ -763,12 +763,13 @@ class Requirements(object):
 class RequirementSet(object):
 
     def __init__(self, build_dir, src_dir, download_dir, download_cache=None,
-                 upgrade=False, ignore_installed=False,
+                 build_cache=None, upgrade=False, ignore_installed=False,
                  ignore_dependencies=False):
         self.build_dir = build_dir
         self.src_dir = src_dir
         self.download_dir = download_dir
         self.download_cache = download_cache
+        self.build_cache = build_cache
         self.upgrade = upgrade
         self.ignore_installed = ignore_installed
         self.requirements = Requirements()
@@ -1019,7 +1020,7 @@ class RequirementSet(object):
                 logger.indent -= 2
 
     def cleanup_files(self, bundle=False):
-        """Clean up files, remove builds."""
+        """Clean up files, remove or cache builds."""
         logger.notify('Cleaning up...')
         logger.indent += 2
         for req in self.reqs_to_cleanup:
@@ -1027,7 +1028,19 @@ class RequirementSet(object):
 
         remove_dir = []
         if self._pip_has_created_build_dir():
-            remove_dir.append(self.build_dir)
+            if self.build_cache:
+                logger.notify('Moving build dir %s to cache...' % self.build_dir)
+                shutil.move(self.build_dir, self.build_cache)
+                
+            else:
+                remove_dir.append(self.build_dir)
+                #TODO add an ignore arg to not move the PIP_DELETE_MARKER
+        elif self.build_cache:
+            logger.notify('Copying build dir %s to cache...' % self.build_dir)
+            pkg_dirname = os.path.basename(self.build_dir.rstrip(os.path.sep))
+            dest = os.path.join(self.build_cache, pkg_dirname)
+            shutil.copytree(self.build_dir, dest)
+            
 
         # The source dir of a bundle can always be removed.
         if bundle:
