@@ -16,7 +16,7 @@ from pip.exceptions import InstallationError, UninstallationError
 from pip.vcs import vcs
 from pip.log import logger
 from pip.util import display_path, rmtree
-from pip.util import ask, backup_dir
+from pip.util import ask, backup_dir, create_cache_folder
 from pip.util import is_installable_dir, is_local, dist_is_local
 from pip.util import renames, normalize_path, egg_link_path
 from pip.util import make_path_relative
@@ -908,6 +908,9 @@ class RequirementSet(object):
                 logger.notify('Obtaining %s' % req_to_install)
             elif install:
                 if req_to_install.url and req_to_install.url.lower().startswith('file:'):
+                    # DW: NOTE: needs to be changed; lies if the package will
+                    # DW: be installed from cache.
+                    # DW: BUT, what if it's editable?
                     logger.notify('Unpacking %s' % display_path(url_to_path(req_to_install.url)))
                 else:
                     logger.notify('Downloading/unpacking %s' % req_to_install)
@@ -916,8 +919,7 @@ class RequirementSet(object):
                 is_bundle = False
                 if req_to_install.editable:
                     if req_to_install.source_dir is None:
-                        location = req_to_install.build_location(self.src_dir)
-                        req_to_install.source_dir = location
+                        req_to_install.source_dir = req_to_install.build_location(self.src_dir)
                     else:
                         location = req_to_install.source_dir
                     if not os.path.exists(self.build_dir):
@@ -945,7 +947,18 @@ class RequirementSet(object):
                             ## FIXME: should req_to_install.url already be a link?
                             url = Link(req_to_install.url)
                             assert url
-                        if url:
+
+                        # DW: XXX: is this OK? I'm not 100% sure...
+                        req_to_install.url = url
+
+                        build_cached = False
+                        if self.build_cache and url:
+                            cached_build_location = self.get_cached_build_location(url)
+                            if os.path.exists(cached_build_location):
+                                build_cached = True
+                                location = cached_build_location
+                            logger.notify('Using cached build from %s' %(cached_build_location, ))
+                        elif url:
                             try:
                                 self.unpack_url(url, location, self.is_download)
                             except urllib2.HTTPError, e:
@@ -1075,6 +1088,18 @@ class RequirementSet(object):
             if self.download_cache:
                 self.download_cache = os.path.expanduser(self.download_cache)
             return unpack_http_url(link, location, self.download_cache, only_download)
+
+    def get_cached_build_location(self, url, create=False):
+        if not self.build_cache:
+            return None
+
+        quoted_url = urllib.quote(url.url, '')
+        build_cache_dir = os.path.join(self.build_cache, quoted_url)
+
+        if create and not os.path.isdir(build_cache_dir):
+            create_cache_folder(build_cache_dir, 'build')
+
+        return build_cache_dir
 
     def install(self, install_options, global_options=()):
         """Install everything in this set (after having downloaded and unpacked the packages)"""

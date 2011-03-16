@@ -12,7 +12,7 @@ from pip.backwardcompat import md5, copytree
 from pip.exceptions import InstallationError
 from pip.util import (splitext, rmtree,
                       format_size, display_path, backup_dir, ask,
-                      unpack_file, create_download_cache_folder, cache_download)
+                      unpack_file, create_cache_folder, cache_download)
 from pip.vcs import vcs
 from pip.log import logger
 
@@ -413,7 +413,7 @@ def unpack_http_url(link, location, download_cache, only_download):
         target_file = os.path.join(download_cache,
                                    urllib.quote(target_url, ''))
         if not os.path.isdir(download_cache):
-            create_download_cache_folder(download_cache)
+            create_cache_folder(download_cache, "download")
     if (target_file
         and os.path.exists(target_file)
         and os.path.exists(target_file+'.content-type')):
