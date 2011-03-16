@@ -201,6 +201,7 @@ class InstallCommand(Command):
             download_dir=options.download_dir,
             download_cache=options.download_cache,
             build_cache=options.build_cache,
+            cache_build=options.cache_build,
             upgrade=options.upgrade,
             ignore_installed=options.ignore_installed,
             ignore_dependencies=options.ignore_dependencies)
