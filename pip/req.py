@@ -953,10 +953,9 @@ class RequirementSet(object):
                         req_to_install.from_build_cache = None
                         build_cache_location = self.get_cached_build_location(url)
                         cache_exists = build_cache_location and os.path.exists(build_cache_location)
-                        if self.build_cache and cache_exists and not self.is_download:
-                            location = os.path.join(build_cache_location, "src")
+                        if cache_exists and not self.is_download:
+                            location = build_cache_location
                             req_to_install.source_dir = location
-                            req_to_install.build_dir = os.path.join(build_cache_location, "build")
                             logger.notify('Using cached build from %s' %(build_cache_location, ))
                         elif url:
                             try:
@@ -1046,7 +1045,7 @@ class RequirementSet(object):
         logger.notify('Cleaning up...')
         logger.indent += 2
 
-        from nose.tools import set_trace as st; st.__dict__.get("off") or st() #BREAK
+        # XXX TO CACHE XXX
         for req in self.unnamed_requirements + self.requirements.values():
             assert not req.editable
             if not getattr(req, "should_cache_build", None):
@@ -1055,10 +1054,8 @@ class RequirementSet(object):
             logger.notify('Moving %s to cache %s...' %(req.name, build_cache_location))
             # DW: Assumes that the package has been built inside the default pip build
             # DW: dir. This can be fixed later.
-            for cache_subdir, current_dir in [("src", self.src_dir), ("build", self.build_dir)]:
-                cache_target = os.path.join(build_cache_location, cache_subdir)
-                shutil.rmtree(cache_target, ignore_errors=True)
-                shutil.move(req.build_location(current_dir), cache_target)
+            shutil.rmtree(build_cache_location, ignore_errors=True)
+            shutil.move(req.source_dir, build_cache_location)
 
         for req in self.reqs_to_cleanup:
             req.remove_temporary_source()
@@ -1103,16 +1100,14 @@ class RequirementSet(object):
             return unpack_http_url(link, location, self.download_cache, only_download)
 
     def get_cached_build_location(self, url, create=False):
+        """Returns the location of the build cache for 'url', or None if
+        'self.build_cache' is not set."""
+
         if not self.build_cache:
             return None
 
         quoted_url = urllib.quote(url.url, '')
-        build_cache_dir = os.path.join(self.build_cache, quoted_url)
-
-        if create and not os.path.exists(build_cache_dir):
-            create_cache_folder(build_cache_dir, 'build')
-
-        return build_cache_dir
+        return os.path.join(self.build_cache, quoted_url)
 
     def install(self, install_options, global_options=()):
         """Install everything in this set (after having downloaded and unpacked the packages)"""
