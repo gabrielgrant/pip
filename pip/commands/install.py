@@ -173,9 +173,11 @@ class InstallCommand(Command):
                              mirrors=options.mirrors)
 
     def run(self, options, args):
+        if (options.src_dir or options.build_dir) and options.cache_build:
+            raise RuntimeError("src-dir and cache-build are mutually exclusive")
         if not options.build_dir:
             options.build_dir = build_prefix
-        if not options.src_dir and not options.cache_build:
+        if not options.src_dir:
             options.src_dir = src_prefix
         if options.download_dir:
             options.no_install = True

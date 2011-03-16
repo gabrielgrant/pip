@@ -763,13 +763,14 @@ class Requirements(object):
 class RequirementSet(object):
 
     def __init__(self, build_dir, src_dir, download_dir, download_cache=None,
-                 build_cache=None, upgrade=False, ignore_installed=False,
-                 ignore_dependencies=False):
+                 build_cache=None, cache_build=False, upgrade=False,
+                 ignore_installed=False, ignore_dependencies=False):
         self.build_dir = build_dir
         self.src_dir = src_dir
         self.download_dir = download_dir
         self.download_cache = download_cache
         self.build_cache = build_cache
+        self.cache_build = cache_build
         self.upgrade = upgrade
         self.ignore_installed = ignore_installed
         self.requirements = Requirements()
@@ -948,16 +949,16 @@ class RequirementSet(object):
                             url = Link(req_to_install.url)
                             assert url
 
-                        # DW: XXX: is this OK? I'm not 100% sure...
-                        req_to_install.url = url
-
-                        build_cached = False
-                        if self.build_cache and url:
+                        # XXX FROM CACHE XXX
+                        req_to_install.from_build_cache = None
+                        if self.build_cache and url and not self.is_download:
                             cached_build_location = self.get_cached_build_location(url)
                             if os.path.exists(cached_build_location):
-                                build_cached = True
-                                location = cached_build_location
-                            logger.notify('Using cached build from %s' %(cached_build_location, ))
+                                location = os.path.join(cached_build_location, "src")
+                                req_to_install.source_dir = location
+                                req_to_install.build_dir = os.path.join(cached_build_location, "build")
+                                logger.notify('Using cached build from %s' %(cached_build_location, ))
+
                         elif url:
                             try:
                                 self.unpack_url(url, location, self.is_download)
@@ -967,6 +968,10 @@ class RequirementSet(object):
                                 raise InstallationError(
                                     'Could not install requirement %s because of HTTP error %s for URL %s'
                                     % (req_to_install, e, url))
+                            # DW: For now, only cache stuff we have unpacked. It would be possible
+                            # DW: to cache stuff we didn't unpack, but that could lead to more edge
+                            # DW: cases.
+                            req_to_install.should_cache = self.cache_build and not self.is_download
                         else:
                             unpack = False
                     if unpack:
@@ -1039,21 +1044,23 @@ class RequirementSet(object):
         for req in self.reqs_to_cleanup:
             req.remove_temporary_source()
 
+        for req in self.unnamed_requirements + self.requirements.values():
+            assert not req.editable
+            if not getattr(req, "should_cache", None):
+                continue
+            build_cache_location = self.get_cached_build_location(req.url, True)
+            logger.notify('Moving to %s cache...' %(req.name, ))
+            # DW: Assumes that the package has been built inside the default pip build
+            # DW: dir. This can be fixed later.
+            for cache_subdir, current_dir in [("src", self.src_dir), ("build", self.build_dir)]:
+                cache_target = os.path.join(build_cache_location, cache_subdir)
+                shutil.rmtree(cache_target, ignore_errors=True)
+                shutil.move(req.build_location(current_dir), cache_target)
+
         remove_dir = []
         if self._pip_has_created_build_dir():
-            if self.build_cache:
-                logger.notify('Moving build dir %s to cache...' % self.build_dir)
-                shutil.move(self.build_dir, self.build_cache)
-                
-            else:
-                remove_dir.append(self.build_dir)
-                #TODO add an ignore arg to not move the PIP_DELETE_MARKER
-        elif self.build_cache:
-            logger.notify('Copying build dir %s to cache...' % self.build_dir)
-            pkg_dirname = os.path.basename(self.build_dir.rstrip(os.path.sep))
-            dest = os.path.join(self.build_cache, pkg_dirname)
-            shutil.copytree(self.build_dir, dest)
-            
+            remove_dir.append(self.build_dir)
+            #TODO add an ignore arg to not move the PIP_DELETE_MARKER
 
         # The source dir of a bundle can always be removed.
         if bundle:
@@ -1096,7 +1103,7 @@ class RequirementSet(object):
         quoted_url = urllib.quote(url.url, '')
         build_cache_dir = os.path.join(self.build_cache, quoted_url)
 
-        if create and not os.path.isdir(build_cache_dir):
+        if create and not os.path.exists(build_cache_dir):
             create_cache_folder(build_cache_dir, 'build')
 
         return build_cache_dir
