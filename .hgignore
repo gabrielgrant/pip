@@ -14,3 +14,10 @@ tags
 *.dump
 env/
 pip.egg-info/
+*.egg
+tests/tests_cache/
+tests/packages/
+cache/
+dist/*
+docs/_build/*
+build/*
